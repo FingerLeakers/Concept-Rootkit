@@ -1146,7 +1146,6 @@ deps_/root/Desktop/programming/439/term_project/Concept-Rootkit/src/rootkit.o :=
   /usr/src/linux-headers-3.18.0-kali3-common/include/linux/perf_regs.h \
     $(wildcard include/config/have/perf/regs.h) \
   /usr/src/linux-headers-3.18.0-kali3-common/arch/x86/include/uapi/asm/perf_regs.h \
-  /usr/src/linux-headers-3.18.0-kali3-common/include/linux/kthread.h \
 
 /root/Desktop/programming/439/term_project/Concept-Rootkit/src/rootkit.o: $(deps_/root/Desktop/programming/439/term_project/Concept-Rootkit/src/rootkit.o)
 

