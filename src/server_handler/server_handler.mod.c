@@ -18,15 +18,10 @@ static const struct modversion_info ____versions[]
 __used
 __attribute__((section("__versions"))) = {
 	{ 0x5cdb9d2f, __VMLINUX_SYMBOL_STR(module_layout) },
-	{ 0x38461209, __VMLINUX_SYMBOL_STR(dev_remove_pack) },
-	{ 0x9ed554b3, __VMLINUX_SYMBOL_STR(unregister_keyboard_notifier) },
-	{ 0x96554810, __VMLINUX_SYMBOL_STR(register_keyboard_notifier) },
-	{ 0x4e6a3638, __VMLINUX_SYMBOL_STR(dev_add_pack) },
-	{ 0xc590bbd2, __VMLINUX_SYMBOL_STR(kfree_skb) },
-	{ 0xbb583eb5, __VMLINUX_SYMBOL_STR(sock_create) },
-	{ 0xfb578fc5, __VMLINUX_SYMBOL_STR(memset) },
-	{ 0x754d539c, __VMLINUX_SYMBOL_STR(strlen) },
+	{ 0x54374ed0, __VMLINUX_SYMBOL_STR(sock_recvmsg) },
+	{ 0x4c4fef19, __VMLINUX_SYMBOL_STR(kernel_stack) },
 	{ 0x27e1a049, __VMLINUX_SYMBOL_STR(printk) },
+	{ 0xbb583eb5, __VMLINUX_SYMBOL_STR(sock_create) },
 	{ 0xbdfb6dbb, __VMLINUX_SYMBOL_STR(__fentry__) },
 };
 

