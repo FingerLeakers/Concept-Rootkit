@@ -20,7 +20,7 @@ def get_command():
 	while not proper:
 		try:
 			command = int(raw_input("	> "))
-			if (command <= 20 and command >= 0):
+			if (command >= 0 and command <= 3):
 				proper  = 1
 			else:
 				print "	<rCMD> Invalid value."
@@ -46,11 +46,16 @@ def menu():
 def connect():
 	sr(IP()/TCP(ack=2035414082))
 
+
+def disconnect():
+	sr(IP()/TCP(ack=1923488235))
+
+# Add commands here.
 commands = {
 	0 : menu,
 	1 : sys.exit,
-	#2 : connect,
-	#3 : disconnect
+	2 : connect,
+	3 : disconnect
 }
 
 def handle_command(command):
