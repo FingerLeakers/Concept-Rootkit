@@ -582,6 +582,15 @@ deps_/root/Desktop/programming/439/term_project/Concept-Rootkit/src/rootkit/root
     $(wildcard include/config/have/mod/arch/specific.h) \
     $(wildcard include/config/modules/use/elf/rel.h) \
     $(wildcard include/config/modules/use/elf/rela.h) \
+  /usr/src/linux-headers-3.18.0-kali3-common/include/linux/slab.h \
+    $(wildcard include/config/slab/debug.h) \
+    $(wildcard include/config/failslab.h) \
+    $(wildcard include/config/memcg/kmem.h) \
+    $(wildcard include/config/slab.h) \
+    $(wildcard include/config/slub.h) \
+    $(wildcard include/config/slob.h) \
+  /usr/src/linux-headers-3.18.0-kali3-common/include/linux/kmemleak.h \
+    $(wildcard include/config/debug/kmemleak.h) \
   /usr/src/linux-headers-3.18.0-kali3-common/arch/x86/include/asm/uaccess.h \
     $(wildcard include/config/x86/intel/usercopy.h) \
     $(wildcard include/config/debug/strict/user/copy/checks.h) \
@@ -875,15 +884,6 @@ deps_/root/Desktop/programming/439/term_project/Concept-Rootkit/src/rootkit/root
   /usr/src/linux-headers-3.18.0-kali3-common/arch/x86/include/asm/archrandom.h \
   /usr/src/linux-headers-3.18.0-kali3-common/include/uapi/linux/net.h \
   /usr/src/linux-headers-3.18.0-kali3-common/include/linux/textsearch.h \
-  /usr/src/linux-headers-3.18.0-kali3-common/include/linux/slab.h \
-    $(wildcard include/config/slab/debug.h) \
-    $(wildcard include/config/failslab.h) \
-    $(wildcard include/config/memcg/kmem.h) \
-    $(wildcard include/config/slab.h) \
-    $(wildcard include/config/slub.h) \
-    $(wildcard include/config/slob.h) \
-  /usr/src/linux-headers-3.18.0-kali3-common/include/linux/kmemleak.h \
-    $(wildcard include/config/debug/kmemleak.h) \
   /usr/src/linux-headers-3.18.0-kali3-common/include/net/checksum.h \
   /usr/src/linux-headers-3.18.0-kali3-common/arch/x86/include/asm/checksum.h \
   /usr/src/linux-headers-3.18.0-kali3-common/arch/x86/include/asm/checksum_64.h \

